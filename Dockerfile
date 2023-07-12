@@ -2,8 +2,6 @@ FROM ubuntu:18.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-EXPOSE 8554
-
 # Install required build dependencies
 
 RUN apt-get -y update && apt-get install -y
