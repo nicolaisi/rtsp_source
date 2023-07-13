@@ -227,7 +227,7 @@ int main(int argc, char *argv[]) {
 
 
   server = gst_rtsp_server_new();
-  gst_rtsp_server_set_service(server, "8554");
+  gst_rtsp_server_set_service(server, "5617");
 
   factory = gst_rtsp_media_factory_new();
 
@@ -331,7 +331,7 @@ int main(int argc, char *argv[]) {
   //g_signal_connect (app->videosrc, "enough-data", G_CALLBACK (stop_feed),app);
 
 
-  g_print("RTSP server is running at rtsp://127.0.0.1:8554/test\n");
+  g_print("RTSP server is running at rtsp://127.0.0.1:5617/test\n");
   g_main_loop_run(loop);
 
   g_hash_table_unref(clients);
