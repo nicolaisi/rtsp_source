@@ -1,5 +1,4 @@
 ```sh
-$ docker image build -t rtsp_docker .
-$ docker run --net=host -d rtsp_docker
+$ podman image build -t rtsp_docker .
+$ podman run --net=host -d rtsp_docker
 ```
-  

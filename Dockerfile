@@ -1,4 +1,4 @@
-FROM ubuntu:18.04
+FROM ubuntu:20.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -10,12 +10,16 @@ RUN apt-get -y install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libg
 RUN apt-get -y install libgstrtspserver-1.0-dev gstreamer1.0-rtsp
 RUN apt-get -y install libcairo2-dev
 
+RUN apt-get -y install mc
 
 WORKDIR /usr/src/app
-COPY . .
+COPY src ./src
 
 # Run cmake configure & build process
-RUN cmake .
+RUN cmake src
 RUN make
+
 # Launch built application
 CMD ["./rtsp"]
+
+ENV GST_DEBUG 3

@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include <glib.h>
 #include <gst/gst.h>
 #include <gst/rtsp-server/rtsp-server.h>
@@ -5,6 +7,13 @@
 #include <gst/video/video.h>
 #include <cairo.h>
 #include <math.h>
+
+#define IPV4_ADDRESS "0.0.0.0"
+#define RTSP_PORT "5617"
+#define RTSP_UDP_PORT_MIN 5000
+#define RTSP_UDP_PORT_MAX 5010
+#define RTSP_TRANSPORTS (GST_RTSP_LOWER_TRANS_TCP | GST_RTSP_LOWER_TRANS_UDP)
+//#define RTSP_TRANSPORTS (GST_RTSP_LOWER_TRANS_UDP)
 
 GHashTable *clients;
 int connected = 0;
@@ -49,7 +58,7 @@ start_feed(GstElement *appsrc, guint user_size, gpointer user_data)
   gint size = width * height;
 //  GstVideoInfo vinfo;
 
-//  printf("feed %p %p\n", appsrc, user_data);
+//  g_print("feed %p %p\n", appsrc, user_data);
   g_mutex_lock(&mutex);
 
   buffer = gst_buffer_new_allocate(NULL, size, NULL);
@@ -89,7 +98,7 @@ start_feed(GstElement *appsrc, guint user_size, gpointer user_data)
     static guint count = 0;
     GstPad *srcpad = gst_element_get_static_pad ((GstElement *)appsrc, "src");
     if (srcpad != NULL) {
-        puts("forcing key-frame");
+        g_print("forcing key-frame (timestamp: %.3lf)\n", 1.f* timestamp / GST_SECOND);
         GstEvent *event = gst_video_event_new_downstream_force_key_unit (timestamp, timestamp, timestamp, TRUE, count++);
         gst_pad_push_event (srcpad, event);
         gst_object_unref (srcpad);
@@ -97,14 +106,14 @@ start_feed(GstElement *appsrc, guint user_size, gpointer user_data)
     }
   }
 
+  g_print("a new buffer delivered (timestamp: %.3lf, clients: %u)\n", 1.f* timestamp / GST_SECOND, g_hash_table_size(clients));
   g_signal_emit_by_name(appsrc, "push-buffer", buffer, &ret);
   gst_buffer_unref(buffer);
 
   g_mutex_unlock(&mutex);
-//  printf("feed %p %p done\n", appsrc, user_data);
 
 
-  return (ret == GST_FLOW_OK);
+//  return (ret == GST_FLOW_OK);
 }
 
 /* this timeout is periodically run to clean up the expired sessions from the
@@ -140,10 +149,19 @@ static void media_configure (GstRTSPMediaFactory * factory, GstRTSPMedia * media
 //  const gchar *clientIP = gst_rtsp_session_get_client_ip(session);
 //  gint clientID = gst_rtsp_session_get_session_id(session);
 //  g_print("media-config --- Client IP: %s, Session ID: %d\n", clientIP, clientID);
-  puts("media-configure");
+  g_print("media-configure\n");
 //  gst_rtsp_media_prepare (media, NULL);
 
-  gst_rtsp_media_set_reusable (media, TRUE);
+/*
+  GstRTSPStream *stream = gst_rtsp_media_get_stream (media, 0); // this reflects number after pay0, also we can use gst_rtsp_media_n_streams
+  GstRTSPAddressPool *pool = gst_rtsp_address_pool_new ();    
+  gst_rtsp_address_pool_add_range(pool, "0.0.0.0", "0.0.0.0", 5000, 5050, 0);
+*/
+
+
+    // Something breaks here if we set reusable to TRUE (probably some server bug). FALSE seems to work with multiple clients.
+//  gst_rtsp_media_set_reusable (media, TRUE);
+  gst_rtsp_media_set_reusable (media, FALSE);
 
   /* get the element used for providing the streams of the media */
   element = gst_rtsp_media_get_element (media);
@@ -163,6 +181,9 @@ static void media_configure (GstRTSPMediaFactory * factory, GstRTSPMedia * media
       "framerate", GST_TYPE_FRACTION, 10, 1,
       NULL);
   g_object_set(G_OBJECT(appsrc), "caps", caps, NULL);
+
+  //GstRTSPStream *stream = gst_rtsp_media_get_stream(media, 0);/* 0 corresponds to pay0 */
+
 
 
 /*
@@ -188,20 +209,29 @@ static void media_configure (GstRTSPMediaFactory * factory, GstRTSPMedia * media
 /* callback function for the client-disconnected signal */
 static void client_disconnected(GstRTSPClient *client, gchar *client_id) {
 	// We need ref-counting here
-    puts("Disconnect");
+    g_mutex_lock(&mutex);
     g_hash_table_remove(clients, client_id);
+    g_mutex_unlock(&mutex);
+
+    g_print("Disconnect: %s (remaining: %u) \n", client_id, g_hash_table_size(clients));
+
     g_free(client_id);
 
     if (g_hash_table_size(clients) == 0) {
 	connected = 0;
+//	timestamp = 0;
     }
     
 }
 
 static void client_connected(GstRTSPServer* server, GstRTSPClient *client, gpointer user_data) {
-    puts("Connect!");
     gchar *client_id = g_strdup_printf("%p", client);
+
+    g_mutex_lock(&mutex);
     g_hash_table_insert(clients, client_id, client);
+    g_mutex_unlock(&mutex);
+
+    g_print("Connect: %s (total: %u) \n", client_id, g_hash_table_size(clients));
 
     connected = 1;
     keyframe = 1;
@@ -227,14 +257,43 @@ int main(int argc, char *argv[]) {
 
 
   server = gst_rtsp_server_new();
-  gst_rtsp_server_set_service(server, "5617");
+  gst_rtsp_server_set_address(server, IPV4_ADDRESS);
+  gst_rtsp_server_set_service(server, RTSP_PORT);
 
   factory = gst_rtsp_media_factory_new();
 
   /* store up to 0.4 seconds of retransmission data */
   //gst_rtsp_media_factory_set_retransmission_time (factory, 400 * GST_MSECOND);
+  //gst_rtsp_media_set_buffer_size (media, size);
   gst_rtsp_media_factory_set_shared (factory, TRUE);
   gst_rtsp_media_factory_set_eos_shutdown(factory, TRUE);
+
+    // Not sure following 2 lines are needed
+//  gst_rtsp_media_factory_set_suspend_mode(factory, GST_RTSP_SUSPEND_MODE_PAUSE);
+//  gst_rtsp_media_factory_set_stop_on_disconnect(factory, TRUE);
+
+  // make a new address pool
+  GstRTSPAddressPool *pool = gst_rtsp_address_pool_new ();
+  gst_rtsp_address_pool_add_range (pool,
+      IPV4_ADDRESS, IPV4_ADDRESS, RTSP_UDP_PORT_MIN, RTSP_UDP_PORT_MAX, 0);
+//  gst_rtsp_address_pool_add_range (pool,
+//      "224.3.0.0", "224.3.0.10", 5000, 5010, 16);
+  gst_rtsp_media_factory_set_address_pool (factory, pool);
+  g_object_unref (pool);
+
+  gst_rtsp_media_factory_set_profiles(factory, GST_RTSP_PROFILE_AVP);
+  gst_rtsp_media_factory_set_protocols (factory, RTSP_TRANSPORTS);
+  gst_rtsp_media_factory_set_transport_mode (factory, GST_RTSP_TRANSPORT_MODE_PLAY);
+
+  //gst_rtsp_media_factory_set_protocols (factory, GST_RTSP_LOWER_TRANS_UDP | GST_RTSP_LOWER_TRANS_UDP_MCAST | GST_RTSP_LOWER_TRANS_TCP | GST_RTSP_LOWER_TRANS_HTTP | GST_RTSP_LOWER_TRANS_TLS  );
+  //gst_rtsp_media_factory_set_transport_mode
+
+  /// only allow multicast
+//  gst_rtsp_media_factory_set_protocols (factory,
+//      GST_RTSP_LOWER_TRANS_UDP_MCAST);
+//      GST_RTSP_LOWER_TRANS_UDP);
+//      GST_RTSP_LOWER_TRANS_TCP | GST_RTSP_LOWER_TRANS_UDP);
+
 
 /*
   gst_rtsp_media_factory_set_launch(
@@ -250,10 +309,13 @@ int main(int argc, char *argv[]) {
 
   gst_rtsp_media_factory_set_launch(
       factory,
-	    
 //      "( appsrc name=mysrc ! videoconvert ! video/x-raw,format=YV12 ! videoconvert ! x264enc speed-preset=ultrafast tune=zerolatency ! rtph264pay name=pay0 pt=96 )"); 	// This converts it to format supported by x264enc without complaining in mplayer/vlc, still problems.
-//      "( appsrc name=mysrc ! videoconvert ! vp8enc speed=6 ! rtpvp8pay name=pay0 )"); 
+//      "( appsrc name=mysrc ! videoconvert ! vp8enc sped=6 ! rtpvp8pay name=pay0 )"); 
+//      "( appsrc name=mysrc ! videoconvert ! vp8enc speed=6 keyframe-max-dist=500 name=vp8enc ! rtpvp8pay name=pay0 )"); 
       "( appsrc name=mysrc ! videoconvert ! vp8enc speed=6 keyframe-max-dist=500 name=vp8enc ! rtpvp8pay name=pay0 )"); 
+//       "( appsrc name=mysrc ! videoconvert ! vp9enc speed=6 keyframe-max-dist=500 name=vp9enc ! rtpvp9pay name=pay0 )"); 
+//      "( appsrc name=mysrc ! videoconvert ! x264enc speed-preset=ultrafast tune=zerolatency ! video/x-h264,stream-format=byte-stream ! rtph264pay name=pay0 pt=96 )");
+
 //      "( appsrc name=mysrc ! video/x-raw,format=GRAY8,width=640,height=480,framerate=0.1 ! videoconvert ! vp8enc speed=6 ! rtpvp8pay name=pay0 )"); 	// Doesn't work
 //      "( appsrc name=mysrc ! videoconvert ! vp9enc speed=6 ! rtpvp9pay name=pay0 )"); 
 //      "( appsrc name=mysrc ! videoconvert ! x264enc speed-preset=ultrafast tune=zerolatency ! rtph264pay name=pay0 pt=96 )");
@@ -271,18 +333,6 @@ int main(int argc, char *argv[]) {
       ")");
 */
 
-
-/*
-  // make a new address pool
-  pool = gst_rtsp_address_pool_new ();
-  gst_rtsp_address_pool_add_range (pool,
-      "224.3.0.0", "224.3.0.10", 5000, 5010, 16);
-  gst_rtsp_media_factory_set_address_pool (factory, pool);
-  /// only allow multicast
-  gst_rtsp_media_factory_set_protocols (factory,
-      GST_RTSP_LOWER_TRANS_UDP_MCAST);
-  g_object_unref (pool);
-*/
 
 /*
   GstElement *pipeline = gst_parse_launch(gst_rtsp_media_factory_get_launch(factory), NULL);
@@ -331,7 +381,7 @@ int main(int argc, char *argv[]) {
   //g_signal_connect (app->videosrc, "enough-data", G_CALLBACK (stop_feed),app);
 
 
-  g_print("RTSP server is running at rtsp://127.0.0.1:5617/test\n");
+  g_print("RTSP server is running at rtsp://127.0.0.1:%s/test\n", RTSP_PORT);
   g_main_loop_run(loop);
 
   g_hash_table_unref(clients);
