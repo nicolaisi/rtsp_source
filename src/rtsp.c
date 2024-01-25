@@ -32,14 +32,39 @@ static void
 draw_bubbles(cairo_t *cr, guint64 elapsed_time)
 {
   guint num_bubbles = 1;
-  double speed = 0.001;
+  //double speed = 0.001;
+  //double radius = 20;
+  double speed, radius;
 
+
+  FILE *myFile;
+  myFile = fopen("data.txt", "r");
+
+  double numberArray[2];
+  
+  for(int i = 0; i < 2; i++) {
+      fscanf(myFile, "%lf", &numberArray[i]);
+  }
+
+
+  radius = numberArray[0];
+  speed = numberArray[1];
+
+
+  double x, y;
   for (guint i = 0; i < num_bubbles; i++) {
-    double x = 320 + 200 * sin(speed * (i + 1) * elapsed_time);
-    double y = 240 + 200 * cos(speed * (i + 1) * elapsed_time);
-    double radius = 20 + 10 * sin(speed * (i + 1) * elapsed_time);
+    x = 320 + 200 * sin(speed * (i + 1) * elapsed_time);
+    y = 240 + 200 * cos(speed * (i + 1) * elapsed_time);
+    //double radius = 20 + 10 * sin(speed * (i + 1) * elapsed_time);
+    
     draw_bubble(cr, x, y, radius);
   }
+  
+  FILE *f = fopen("coord.txt", "w");
+
+  fprintf(f, "%lf %lf", x, y);
+
+  fclose(f);
 }
 
 size_t timestamp = 0;
@@ -106,7 +131,7 @@ start_feed(GstElement *appsrc, guint user_size, gpointer user_data)
     }
   }
 
-  g_print("a new buffer delivered (timestamp: %.3lf, clients: %u)\n", 1.f* timestamp / GST_SECOND, g_hash_table_size(clients));
+  //g_print("a new buffer delivered (timestamp: %.3lf, clients: %u)\n", 1.f* timestamp / GST_SECOND, g_hash_table_size(clients));
   g_signal_emit_by_name(appsrc, "push-buffer", buffer, &ret);
   gst_buffer_unref(buffer);
 
@@ -174,7 +199,7 @@ static void media_configure (GstRTSPMediaFactory * factory, GstRTSPMedia * media
 
 
   GstCaps *caps = gst_caps_new_simple(
-      "video/x-raw",
+		  "video/x-raw",
       "format", G_TYPE_STRING, "GRAY8",
       "width", G_TYPE_INT, 640,
       "height", G_TYPE_INT, 480,
