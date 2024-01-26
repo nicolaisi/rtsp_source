@@ -1,3 +1,0 @@
-/mnt/c/Users/nicho/OneDrive/Desktop/rtsp_docker/src/CMakeFiles/rebuild_cache.dir
-/mnt/c/Users/nicho/OneDrive/Desktop/rtsp_docker/src/CMakeFiles/edit_cache.dir
-/mnt/c/Users/nicho/OneDrive/Desktop/rtsp_docker/src/CMakeFiles/rtsp.dir
